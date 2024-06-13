@@ -1,4 +1,4 @@
-// 서보모터 + 초음파센서
+// 서보모터 : without using library, 초음파센서 : using library (pulseIn 함수만)
 #define MAX_DISTANCE 10000000L
 
 const int trigPins[4] = { 2, 4, 6, 7 };   // 초음파 센서의 트리거 핀
