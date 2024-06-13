@@ -1,0 +1,145 @@
+// 서보모터 + 초음파센서
+#define MAX_DISTANCE 10000000L
+
+const int trigPins[4] = { 2, 4, 6, 7 };   // 초음파 센서의 트리거 핀
+const int echoPins[4] = { 3, 5, 8, 9 };  // 초음파 센서의 에코 핀
+const int servoPin = 10;  // 서보 모터 제어 핀
+
+volatile bool interruptFlag = false;
+int currentAngle = 0; // 현재 각도
+int targetAngle = 0;  // 목표 각도
+bool clockwise = true; // 서보모터 회전 방향
+
+void setup() {
+    // 핀 모드 설정
+    DDRD |= (1 << DDD2) | (1 << DDD4) | (1 << DDD6) | (1 << DDD7);    // 트리거 핀을 출력으로 설정 (PD2, PD4, PD6, PD7)
+    DDRD &= ~((1 << DDD3) | (1 << DDD5));                             // 에코 핀을 입력으로 설정 (PD3, PD5)
+    DDRB &= ~((1 << DDB0) | (1 << DDB1));                             // 에코 핀을 입력으로 설정 (PB0, PB1)
+    DDRB |= (1 << DDB2); // 서보 핀을 출력으로 설정 (PB2)
+
+    // 인터럽트 설정
+    EICRA |= (1 << ISC00);  // 핀 10의 변화에 인터럽트 설정
+    EIMSK |= (1 << INT0);   // INT0 인터럽트 활성화
+
+    Serial.begin(9600);
+
+    // 초기 위치 설정
+    setServoAngle(currentAngle);
+}
+
+void loop() {
+    // 초음파 센서로 거리 측정
+    long durations[4], distances[4];
+    long minDistance = MAX_DISTANCE;
+    int minIndex = -1;
+
+    for (int i = 0; i < 4; i++) {
+        switch (trigPins[i]) {
+        case 2:
+            PORTD &= ~(1 << PORTD2); // PD2를 LOW로 설정
+            delayMicroseconds(2);
+            PORTD |= (1 << PORTD2);  // PD2를 HIGH로 설정
+            delayMicroseconds(10);
+            PORTD &= ~(1 << PORTD2); // PD2를 다시 LOW로 설정
+            break;
+        case 4:
+            PORTD &= ~(1 << PORTD4); // PD4를 LOW로 설정
+            delayMicroseconds(2);
+            PORTD |= (1 << PORTD4);  // PD4를 HIGH로 설정
+            delayMicroseconds(10);
+            PORTD &= ~(1 << PORTD4); // PD4를 다시 LOW로 설정
+            break;
+        case 6:
+            PORTD &= ~(1 << PORTD6); // PD6를 LOW로 설정
+            delayMicroseconds(2);
+            PORTD |= (1 << PORTD6);  // PD6를 HIGH로 설정
+            delayMicroseconds(10);
+            PORTD &= ~(1 << PORTD6); // PD6를 다시 LOW로 설정
+            break;
+        case 7:
+            PORTD &= ~(1 << PORTD7); // PD7를 LOW로 설정
+            delayMicroseconds(2);
+            PORTD |= (1 << PORTD7);  // PD7를 HIGH로 설정
+            delayMicroseconds(10);
+            PORTD &= ~(1 << PORTD7); // PD7를 다시 LOW로 설정
+            break;
+        }
+
+        durations[i] = pulseIn(echoPins[i], HIGH); // pulseIn(pin,state) -> pin이 지정된 상태에 있는 시간을 반환 
+        distances[i] = (durations[i] / 2) / 29.1; // 나누기2 는 왕복이 아닌 편도 시간 계산. 나누기 29.2 은 초음파의 평균 속도를 고려 -> 거리 계산 (cm)
+
+        if (distances[i] < minDistance) {
+            minDistance = distances[i];
+            minIndex = i;
+        }
+    }
+
+    Serial.print("가장 가까운 거리: ");
+    Serial.print(minDistance);
+    Serial.println(" cm, 센서: ");
+    Serial.print(minIndex);
+
+    // 거리에 따라 서보 모터 제어
+    if (minDistance < 40) {
+        interruptFlag = true; // 물체가 가까워지면(10cm 이내) 인터럽트 플래그 설정
+        targetAngle = SensorAngle(minIndex); // 목표 각도 설정
+    }
+    else {
+        interruptFlag = false;
+    }
+
+    if (!interruptFlag) {
+        // 주기적으로 서보 모터의 각도를 조정
+        if (clockwise) {
+            currentAngle++;
+            if (currentAngle >= 180) {  // 180도 까지 시계방향 회전
+                clockwise = false;
+            }
+        }
+        else {
+            currentAngle--;
+            if (currentAngle <= 0) {  // 0도 이후에는 반시계방향 회전
+                clockwise = true;
+            }
+        }
+    }
+    else {
+        // 목표 각도까지 서서히 이동
+        if (currentAngle < targetAngle) {
+            currentAngle++;
+        }
+        else if (currentAngle > targetAngle) {
+            currentAngle--;
+        }
+    }
+
+    setServoAngle(currentAngle); // 서보 모터 회전
+    delay(20); // 서보 모터 속도 제어를 위해 딜레이 추가
+}
+
+int SensorAngle(int sensorIndex) {
+    switch (sensorIndex) {
+    case 0: return 155;   // 첫 번째 센서: 155도
+    case 1: return 125;  // 두 번째 센서: 125도
+    case 2: return 75;  // 세 번째 센서: 75도
+    case 3: return 45; // 네 번째 센서: 45도
+    default: return 0;
+    }
+}
+
+ISR(INT0_vect) {
+    // 인터럽트가 발생했을 때 플래그 설정
+    interruptFlag = true;
+}
+
+void setServoAngle(int angle) {
+    // 각도를 PWM 신호로 변환
+    int pulseWidth = map(angle, 0, 180, 544, 2400); // 0도에서 180도 사이의 각도를 544us에서 2400us 사이의 펄스 폭으로 변환
+    int pulsePeriod = 20000; // 20ms 주기 (서보 PWM 주기)
+
+    // 서보 제어 신호 생성
+    PORTB |= (1 << PORTB2); // PB2를 HIGH로 설정 (서보 모터 제어 핀)
+    delayMicroseconds(pulseWidth);
+    PORTB &= ~(1 << PORTB2); // PB2를 LOW로 설정
+    delayMicroseconds(pulsePeriod - pulseWidth);
+}
