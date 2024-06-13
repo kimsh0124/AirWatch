@@ -1,0 +1,102 @@
+// DC모터 + 온도센서 + 세그먼트
+#include <Wire.h>               // 비접촉 온도센서 library
+#include <Adafruit_MLX90614.h>  // 비접촉 온도센서 library
+
+Adafruit_MLX90614 tem = Adafruit_MLX90614(); // 이 코드는 Adafruit_MLX90614 클래스의 객체를 만든 후, tem이라는 이름으로 초기화
+
+const int pwmPin = 3;    // JMOD-MOTOR-1의 PWM 핀 (타이머2의 OC2B 핀)
+const int in1Pin = 4;    // JMOD-MOTOR-1의 IN1 핀
+const int in2Pin = 5;    // JMOD-MOTOR-1의 IN2 핀
+
+const uint8_t segmentPins[8] = {6, 7, 8, 9, 10, 11, 12, 13}; // A, B, C, D, E, F, G, DP
+
+const uint8_t message[3][8] = {
+  {1, 1, 1, 1, 1, 1, 0, 0}, // 0
+  {0, 1, 1, 0, 0, 0, 0, 0}, // 1
+  {1, 1, 0, 1, 1, 0, 1, 0}, // 2
+};
+
+float read_temperature() { // 온도 값 읽기
+  return tem.readAmbientTempC(); // 주변온도 측정
+}
+
+void setup() {
+  // 핀 모드 설정
+  DDRD |= (1 << DDD3);  // 핀 3 (PD3)을 출력으로 설정 (PWM 제어 핀)
+  DDRD |= (1 << DDD4);  // 핀 4 (PD4)을 출력으로 설정 (IN1)
+  DDRD |= (1 << DDD5);  // 핀 5 (PD5)을 출력으로 설정 (IN2)
+
+  DDRD |= (1 << DDD6); // 핀 6 (PD6)을 출력으로 설정 (Segment A)
+  DDRD |= (1 << DDD7); // 핀 7 (PD7)을 출력으로 설정 (Segment B)
+  DDRB |= (1 << DDB0); // 핀 8 (PB0)을 출력으로 설정 (Segment C)
+  DDRB |= (1 << DDB1); // 핀 9 (PB1)을 출력으로 설정 (Segment D)
+  DDRB |= (1 << DDB2); // 핀 10 (PB2)을 출력으로 설정 (Segment E)
+  DDRB |= (1 << DDB3); // 핀 11 (PB3)을 출력으로 설정 (Segment F)
+  DDRB |= (1 << DDB4); // 핀 12 (PB4)을 출력으로 설정 (Segment G)
+  DDRB |= (1 << DDB5); // 핀 13 (PB5)을 출력으로 설정 (DP)
+
+  Serial.begin(9600);
+
+  if (!tem.begin()) { // tem.begin() 함수는 MLX90614 센서를 초기화. 센서 초기화 성공시 true, 센서 초기화에 실패시 false.
+    Serial.println("MLX90614 센서 오류"); // 실패 시 에러 메시지를 출력한 후 무한 루프로 멈춤.
+    while (1); 
+  }
+
+  // 타이머2 설정 (PWM 제어)
+  TCCR2A = (1 << WGM20) | (1 << WGM21); // Fast PWM 모드
+  TCCR2B = (1 << CS21); // prescaler 8 설정
+  TCCR2A |= (1 << COM2B1); // pwmPin이 Pin3으로 설정. Pin3은 Timer2의 OC2B핀. non-inverting mode로 설정해 duty cycle 조정.
+}
+
+void loop() {
+  // 온도 센서 읽기
+  float temperature = read_temperature(); 
+
+  // 온도에 따라 DC 모터 속도 제어
+  // Duty Cycle Percentage = (PWM 값) / (PWM 최댓값) * 100
+  if (temperature < 22) {
+    setMotorSpeed(0);  // 1단계 (멈춤)
+    
+    displayMessage(0);
+  } 
+  else if (temperature < 22.7) {
+    setMotorSpeed(128); // 2단계 (약 50% 속도)
+    
+    displayMessage(1);
+  } 
+  else {
+    setMotorSpeed(255); // 3단계 (최대 속도)
+
+    displayMessage(2);
+  }
+
+  Serial.print("온도: ");
+  Serial.print(temperature);
+  Serial.println(" C");
+}
+
+void setMotorSpeed(int speed) {
+  // JMOD-MOTOR-1 드라이버로 모터 속도 제어 (PWM)
+  OCR2B = speed; // PWM 듀티 사이클 설정 (타이머2의 OCR2B 레지스터)
+
+  PORTD |= (1 << PORTD4); // IN1 핀 HIGH
+  PORTD &= ~(1 << PORTD5); // IN2 핀 LOW
+}
+
+void displayMessage(int index) {
+  for (int i = 0; i < 8; i++) {
+    if (message[index][i] == 1) {
+      if (segmentPins[i] < 8) {  // 핀이 PORTD에 있는 경우
+        PORTD |= (1 << segmentPins[i]);
+      } else {  // 핀이 PORTB에 있는 경우
+        PORTB |= (1 << (segmentPins[i] - 8));
+      }
+    } else {
+      if (segmentPins[i] < 8) {  // 핀이 PORTD에 있는 경우
+        PORTD &= ~(1 << segmentPins[i]);
+      } else {  // 핀이 PORTB에 있는 경우
+        PORTB &= ~(1 << (segmentPins[i] - 8));
+      }
+    }
+  }
+}
