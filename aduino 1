@@ -1,4 +1,4 @@
-// DC모터 + 온도센서 + 세그먼트
+// DC모터 + 세그먼트 : without using library, 온도 센서 : using library
 #include <Wire.h>               // 비접촉 온도센서 library
 #include <Adafruit_MLX90614.h>  // 비접촉 온도센서 library
 
